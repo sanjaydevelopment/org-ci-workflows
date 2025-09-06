@@ -1,53 +1,45 @@
-name: Python Checks
-
+name: Project Validation Checks
 on:
-  workflow_call:  # 👈 allows other repos to call this workflow
-    inputs:
-      python-version:
-        required: false
-        type: string
-        default: "3.11"
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
 
 jobs:
-  checks:
+  validate_project:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. ✅ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      # 2. ✅ Set up Python
-      - name: Set up Python ${{ inputs.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      # 3. ✅ Install dependencies (only if requirements.txt exists)
-      - name: Install dependencies
+      - name: Validate project structure
         run: |
-          if [ -f requirements.txt ]; then
-            echo "Installing dependencies..."
-            pip install -r requirements.txt
-          else
-            echo "⚠️ requirements.txt not found, skipping dependency install"
+          echo "Checking project structure..."
+          REQUIRED_FILES=("README.md" "requirements.txt" "src" "tests")
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -e "$file" ]; then
+              echo "❌ Missing required file or folder: $file"
+              exit 1
+            fi
+          done
+          echo "✅ Project structure OK"
+
+      - name: Validate requirements.txt
+        run: |
+          if [ ! -f "requirements.txt" ]; then
+            echo "❌ requirements.txt not found!"
+            exit 1
           fi
+          # Optional: check for valid pip syntax
+          pip install --dry-run -r requirements.txt || { echo "❌ Invalid requirements.txt"; exit 1; }
+          echo "✅ requirements.txt is valid"
 
-      # 4. ✅ Lint with flake8
-      - name: Run flake8 lint
+      - name: Check for hardcoded secrets
         run: |
-          pip install flake8
-          echo "Running flake8..."
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      # 5. ✅ Run pytest if tests/ directory exists
-      - name: Run tests with pytest
-        run: |
-          pip install pytest
-          if [ -d tests ]; then
-            echo "Running pytest..."
-            pytest -q --disable-warnings
-          else
-            echo "⚠️ No tests/ directory found, skipping pytest"
+          echo "Checking for hardcoded secrets..."
+          if grep -rE "(API_KEY|PASSWORD|SECRET|TOKEN) *= *['\"]" ./src; then
+            echo "❌ Hardcoded secret found! Please remove it."
+            exit 1
           fi
+          echo "✅ No hardcoded secrets detected"
