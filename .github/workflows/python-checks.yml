@@ -1,9 +1,12 @@
 name: Python Project Checklist
 
 on:
-  push:
-    branches: ["main", "develop", "dev", "feature/*"]
-  pull_request:
+  workflow_call:   # 👈 Makes it reusable
+    inputs:
+      project_folder:
+        required: true
+        type: string
+        description: "Main project folder (e.g., AILogAnalyzer)"
 
 jobs:
   checklist:
@@ -22,41 +25,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install flake8 bandit
 
-      # ✅ Check for required project files
+      # ✅ Check required files
       - name: Check required files
         run: |
           echo "🔍 Checking required files..."
           [ -f requirements.txt ] || (echo "❌ requirements.txt missing" && exit 1)
           [ -f README.md ] || (echo "❌ README.md missing" && exit 1)
-          echo "✅ Required files are present."
+          echo "✅ Required files found."
 
-      # ✅ Check for project structure
+      # ✅ Check project structure
       - name: Check project structure
         run: |
           echo "🔍 Checking project structure..."
+          [ -d ${{ inputs.project_folder }} ] || (echo "❌ Folder ${{ inputs.project_folder }}/ missing" && exit 1)
           [ -d tests ] || (echo "❌ tests/ folder missing" && exit 1)
-          [ -d AILogAnalyzer ] || (echo "❌ AILogAnalyzer/ folder missing" && exit 1)
           echo "✅ Project structure looks good."
 
-      # ✅ Check for hardcoded values (simple scan)
+      # ✅ Check for hardcoded values
       - name: Check for hardcoded secrets
         run: |
-          echo "🔍 Scanning for hardcoded values..."
-          if grep -i -E "password|secret|apikey|token|dbhost" -r AILogAnalyzer/; then
+          echo "🔍 Scanning for hardcoded sensitive values..."
+          if grep -i -E "password|secret|apikey|token|dbhost" -r ${{ inputs.project_folder }}/; then
             echo "❌ Hardcoded sensitive value found. Please use environment variables."
             exit 1
           fi
           echo "✅ No hardcoded sensitive values found."
 
-      # ✅ Run lint
+      # ✅ Lint with flake8
       - name: Lint with flake8
         run: |
-          echo "🔍 Running flake8 lint..."
-          flake8 AILogAnalyzer --max-line-length=100
-          echo "✅ Linting passed."
+          echo "🔍 Running lint..."
+          flake8 ${{ inputs.project_folder }} --max-line-length=100
+          echo "✅ Lint passed."
 
-      # ✅ Security scan
+      # ✅ Security scan with Bandit
       - name: Security check with Bandit
         run: |
           echo "🔍 Running Bandit security scan..."
-          bandit -r AILogAnalyzer || (echo "❌ Security issues found!" && exit 1)
+          bandit -r ${{ inputs.project_folder }}
