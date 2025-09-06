@@ -3,26 +3,33 @@ name: Global Python Checks
 on:
   workflow_call:
 
+permissions:
+  contents: read
+  issues: write   # ✅ required to create/update CI issues
+
 jobs:
   run-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
       - name: Initialize failure summary
         run: echo "" > failure-summary.txt
 
-      # ✅ Check requirements.txt
+      # ✅ requirements.txt
       - name: Check for requirements.txt
         run: |
           if [ ! -f requirements.txt ]; then
             echo "❌ requirements.txt missing" >> failure-summary.txt
           fi
 
-      # ✅ Check project structure
+      # ✅ Project structure (example: src + tests must exist)
       - name: Check project structure
         run: |
           for dir in src tests; do
@@ -31,14 +38,14 @@ jobs:
             fi
           done
 
-      # ✅ Hardcoded values check
-      - name: Check for hardcoded secrets
+      # ✅ Hardcoded secrets
+      - name: Check for hardcoded sensitive values
         run: |
-          if grep -R "password=" . || grep -R "api_key=" .; then
+          if grep -R -n -E "password=|api[_-]?key=|secret=" .; then
             echo "❌ Hardcoded sensitive values found" >> failure-summary.txt
           fi
 
-      # ✅ Lint (optional, continue but log failures)
+      # ✅ Lint (optional)
       - name: Run lint
         run: |
           pip install flake8
@@ -49,7 +56,7 @@ jobs:
           fi
           set -e
 
-      # ✅ Security check (optional, continue but log failures)
+      # ✅ Security check (optional)
       - name: Run security check
         run: |
           pip install bandit
@@ -60,7 +67,7 @@ jobs:
           fi
           set -e
 
-      # ✅ Upload artifacts for debugging
+      # ✅ Upload artifacts (lint + security + summary)
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
@@ -70,7 +77,7 @@ jobs:
             lint-report.txt
             security-report.txt
 
-      # ✅ Fail if summary has issues
+      # ✅ Check if failed
       - name: Check results
         id: results
         run: |
@@ -104,7 +111,7 @@ jobs:
             const existing = issues.find(i => i.title === issueTitle);
 
             if ("${{ steps.results.outputs.status }}" === "fail") {
-              const body = `CI checks failed on branch \`${branch}\` in workflow run [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n**Summary:**\n\`\`\`\n${summary}\n\`\`\``;
+              const body = `CI checks failed on branch \`${branch}\` in workflow run: [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n**Summary:**\n\`\`\`\n${summary}\n\`\`\``;
 
               if (existing) {
                 await github.rest.issues.update({
