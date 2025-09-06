@@ -1,94 +1,140 @@
-name: Python Project Checklist
+name: Global Python Checks
 
 on:
   workflow_call:
-    inputs:
-      project_folder:
-        required: true
-        type: string
-        description: "Main project folder (e.g., AILogAnalyzer)"
 
 jobs:
-  checklist:
+  run-checks:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.x"
 
-      - name: Install tools
+      - name: Initialize failure summary
+        run: echo "" > failure-summary.txt
+
+      # ✅ Check requirements.txt
+      - name: Check for requirements.txt
         run: |
-          python -m pip install --upgrade pip
-          pip install flake8 bandit
+          if [ ! -f requirements.txt ]; then
+            echo "❌ requirements.txt missing" >> failure-summary.txt
+          fi
 
-      # ✅ Must pass
-      - name: Check required files
-        id: files
-        run: |
-          msg=""
-          if [ ! -f requirements.txt ]; then msg="❌ requirements.txt missing"; fi
-          if [ ! -f README.md ]; then msg="$msg\n❌ README.md missing"; fi
-          if [ -n "$msg" ]; then echo -e "$msg"; exit 1; fi
-          echo "✅ Required files found."
-
-      # ✅ Must pass
+      # ✅ Check project structure
       - name: Check project structure
-        id: structure
         run: |
-          msg=""
-          if [ ! -d "${{ inputs.project_folder }}" ]; then msg="❌ Folder ${{ inputs.project_folder }}/ missing"; fi
-          if [ ! -d tests ]; then msg="$msg\n❌ tests/ folder missing"; fi
-          if [ -n "$msg" ]; then echo -e "$msg"; exit 1; fi
-          echo "✅ Project structure looks good."
+          for dir in src tests; do
+            if [ ! -d "$dir" ]; then
+              echo "❌ Missing directory: $dir" >> failure-summary.txt
+            fi
+          done
 
-      # ✅ Must pass
-      - name: Check for hardcoded values
-        id: hardcode
+      # ✅ Hardcoded values check
+      - name: Check for hardcoded secrets
         run: |
-          if grep -i -E "password|secret|apikey|token|dbhost" -r ${{ inputs.project_folder }}/; then
-            echo "❌ Hardcoded sensitive value found. Please use environment variables."
-            exit 1
+          if grep -R "password=" . || grep -R "api_key=" .; then
+            echo "❌ Hardcoded sensitive values found" >> failure-summary.txt
           fi
-          echo "✅ No hardcoded sensitive values found."
 
-      # ⚠️ Optional
-      - name: Lint with flake8 (non-blocking)
-        id: lint
-        continue-on-error: true
+      # ✅ Lint (optional, continue but log failures)
+      - name: Run lint
         run: |
-          echo "🔍 Running lint (non-blocking)..."
-          flake8 ${{ inputs.project_folder }} --max-line-length=120
+          pip install flake8
+          set +e
+          flake8 . > lint-report.txt
           if [ $? -ne 0 ]; then
-            echo "⚠️ Linting issues found (not blocking workflow)."
-          else
-            echo "✅ Lint passed."
+            echo "❌ Lint errors found (see lint-report.txt)" >> failure-summary.txt
           fi
+          set -e
 
-      # ⚠️ Optional
-      - name: Security check with Bandit (non-blocking)
-        id: bandit
-        continue-on-error: true
+      # ✅ Security check (optional, continue but log failures)
+      - name: Run security check
         run: |
-          echo "🔍 Running Bandit security scan (non-blocking)..."
-          bandit -r ${{ inputs.project_folder }}
+          pip install bandit
+          set +e
+          bandit -r . -f txt -o security-report.txt
           if [ $? -ne 0 ]; then
-            echo "⚠️ Security issues found (not blocking workflow)."
+            echo "❌ Security issues found (see security-report.txt)" >> failure-summary.txt
+          fi
+          set -e
+
+      # ✅ Upload artifacts for debugging
+      - name: Upload reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: reports
+          path: |
+            failure-summary.txt
+            lint-report.txt
+            security-report.txt
+
+      # ✅ Fail if summary has issues
+      - name: Check results
+        id: results
+        run: |
+          if [ -s failure-summary.txt ]; then
+            echo "status=fail" >> $GITHUB_OUTPUT
           else
-            echo "✅ Security scan passed."
+            echo "status=pass" >> $GITHUB_OUTPUT
           fi
 
-      # ✅ Final summary
-      - name: Summary Report
+      # ✅ Manage Issue
+      - name: Create/Update Issue
         if: always()
-        run: |
-          echo "📋 Project Checklist Summary"
-          echo "---------------------------"
-          echo "Files Check:     ${{ steps.files.outcome }}"
-          echo "Structure Check: ${{ steps.structure.outcome }}"
-          echo "Hardcoded Scan:  ${{ steps.hardcode.outcome }}"
-          echo "Lint Check:      ${{ steps.lint.outcome }} (non-blocking)"
-          echo "Security Check:  ${{ steps.bandit.outcome }} (non-blocking)"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const summary = fs.readFileSync("failure-summary.txt", "utf8");
+            const branch = process.env.GITHUB_REF_NAME;
+            const issueTitle = `⚠️ CI Issues in branch: ${branch}`;
+            const label = "ci-checks";
+
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: "open",
+                labels: label
+              }
+            );
+            const existing = issues.find(i => i.title === issueTitle);
+
+            if ("${{ steps.results.outputs.status }}" === "fail") {
+              const body = `CI checks failed on branch \`${branch}\` in workflow run [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n**Summary:**\n\`\`\`\n${summary}\n\`\`\``;
+
+              if (existing) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issueTitle,
+                  body,
+                  labels: [label]
+                });
+              }
+            } else {
+              if (existing) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  state: "closed",
+                  body: "✅ All checks passing, closing issue."
+                });
+              }
+            }
+
+      # ✅ Final fail if needed
+      - name: Fail job if checks failed
+        if: steps.results.outputs.status == 'fail'
+        run: exit 1
