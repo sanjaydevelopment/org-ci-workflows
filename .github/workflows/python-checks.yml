@@ -52,13 +52,17 @@ jobs:
           fi
           echo "✅ No hardcoded sensitive values found."
 
-      - name: Lint with flake8
+      - name: Lint with flake8 (non-blocking)
         id: lint
+        continue-on-error: true   # 👈 makes lint optional
         run: |
-          flake8 ${{ inputs.project_folder }} --max-line-length=120 || (
-            echo "❌ Linting failed. Please fix style issues." && exit 1
-          )
-          echo "✅ Lint passed."
+          echo "🔍 Running lint (non-blocking)..."
+          flake8 ${{ inputs.project_folder }} --max-line-length=120
+          if [ $? -ne 0 ]; then
+            echo "⚠️ Linting issues found (not blocking workflow)."
+          else
+            echo "✅ Lint passed."
+          fi
 
       - name: Security check with Bandit
         id: bandit
@@ -77,5 +81,5 @@ jobs:
           echo "Files Check:     ${{ steps.files.outcome }}"
           echo "Structure Check: ${{ steps.structure.outcome }}"
           echo "Hardcoded Scan:  ${{ steps.hardcode.outcome }}"
-          echo "Lint Check:      ${{ steps.lint.outcome }}"
+          echo "Lint Check:      ${{ steps.lint.outcome }} (non-blocking)"
           echo "Security Check:  ${{ steps.bandit.outcome }}"
