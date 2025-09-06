@@ -1,7 +1,7 @@
 name: Python Project Checklist
 
 on:
-  workflow_call:   # 👈 Makes it reusable
+  workflow_call:
     inputs:
       project_folder:
         required: true
@@ -25,41 +25,57 @@ jobs:
           python -m pip install --upgrade pip
           pip install flake8 bandit
 
-      # ✅ Check required files
       - name: Check required files
+        id: files
         run: |
-          echo "🔍 Checking required files..."
-          [ -f requirements.txt ] || (echo "❌ requirements.txt missing" && exit 1)
-          [ -f README.md ] || (echo "❌ README.md missing" && exit 1)
+          msg=""
+          if [ ! -f requirements.txt ]; then msg="❌ requirements.txt missing"; fi
+          if [ ! -f README.md ]; then msg="$msg\n❌ README.md missing"; fi
+          if [ -n "$msg" ]; then echo -e "$msg"; exit 1; fi
           echo "✅ Required files found."
 
-      # ✅ Check project structure
       - name: Check project structure
+        id: structure
         run: |
-          echo "🔍 Checking project structure..."
-          [ -d ${{ inputs.project_folder }} ] || (echo "❌ Folder ${{ inputs.project_folder }}/ missing" && exit 1)
-          [ -d tests ] || (echo "❌ tests/ folder missing" && exit 1)
+          msg=""
+          if [ ! -d "${{ inputs.project_folder }}" ]; then msg="❌ Folder ${{ inputs.project_folder }}/ missing"; fi
+          if [ ! -d tests ]; then msg="$msg\n❌ tests/ folder missing"; fi
+          if [ -n "$msg" ]; then echo -e "$msg"; exit 1; fi
           echo "✅ Project structure looks good."
 
-      # ✅ Check for hardcoded values
-      - name: Check for hardcoded secrets
+      - name: Check for hardcoded values
+        id: hardcode
         run: |
-          echo "🔍 Scanning for hardcoded sensitive values..."
           if grep -i -E "password|secret|apikey|token|dbhost" -r ${{ inputs.project_folder }}/; then
             echo "❌ Hardcoded sensitive value found. Please use environment variables."
             exit 1
           fi
           echo "✅ No hardcoded sensitive values found."
 
-      # ✅ Lint with flake8
       - name: Lint with flake8
+        id: lint
         run: |
-          echo "🔍 Running lint..."
-          flake8 ${{ inputs.project_folder }} --max-line-length=100
+          flake8 ${{ inputs.project_folder }} --max-line-length=120 || (
+            echo "❌ Linting failed. Please fix style issues." && exit 1
+          )
           echo "✅ Lint passed."
 
-      # ✅ Security scan with Bandit
       - name: Security check with Bandit
+        id: bandit
         run: |
-          echo "🔍 Running Bandit security scan..."
-          bandit -r ${{ inputs.project_folder }}
+          bandit -r ${{ inputs.project_folder }} || (
+            echo "❌ Security issues found!" && exit 1
+          )
+          echo "✅ Security scan passed."
+
+      # ✅ Final summary
+      - name: Summary Report
+        if: always()
+        run: |
+          echo "📋 Project Checklist Summary"
+          echo "---------------------------"
+          echo "Files Check:     ${{ steps.files.outcome }}"
+          echo "Structure Check: ${{ steps.structure.outcome }}"
+          echo "Hardcoded Scan:  ${{ steps.hardcode.outcome }}"
+          echo "Lint Check:      ${{ steps.lint.outcome }}"
+          echo "Security Check:  ${{ steps.bandit.outcome }}"
