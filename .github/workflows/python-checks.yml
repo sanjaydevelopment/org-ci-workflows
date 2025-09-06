@@ -1,45 +1,62 @@
-name: Project Validation Checks
+name: Python Project Checklist
+
 on:
   push:
-    branches:
-      - main
-      - 'feature/**'
+    branches: ["main", "develop", "dev", "feature/*"]
   pull_request:
 
 jobs:
-  validate_project:
+  checklist:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Validate project structure
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install tools
         run: |
-          echo "Checking project structure..."
-          REQUIRED_FILES=("README.md" "requirements.txt" "src" "tests")
-          for file in "${REQUIRED_FILES[@]}"; do
-            if [ ! -e "$file" ]; then
-              echo "❌ Missing required file or folder: $file"
-              exit 1
-            fi
-          done
-          echo "✅ Project structure OK"
+          python -m pip install --upgrade pip
+          pip install flake8 bandit
 
-      - name: Validate requirements.txt
+      # ✅ Check for required project files
+      - name: Check required files
         run: |
-          if [ ! -f "requirements.txt" ]; then
-            echo "❌ requirements.txt not found!"
-            exit 1
-          fi
-          # Optional: check for valid pip syntax
-          pip install --dry-run -r requirements.txt || { echo "❌ Invalid requirements.txt"; exit 1; }
-          echo "✅ requirements.txt is valid"
+          echo "🔍 Checking required files..."
+          [ -f requirements.txt ] || (echo "❌ requirements.txt missing" && exit 1)
+          [ -f README.md ] || (echo "❌ README.md missing" && exit 1)
+          echo "✅ Required files are present."
 
+      # ✅ Check for project structure
+      - name: Check project structure
+        run: |
+          echo "🔍 Checking project structure..."
+          [ -d tests ] || (echo "❌ tests/ folder missing" && exit 1)
+          [ -d AILogAnalyzer ] || (echo "❌ AILogAnalyzer/ folder missing" && exit 1)
+          echo "✅ Project structure looks good."
+
+      # ✅ Check for hardcoded values (simple scan)
       - name: Check for hardcoded secrets
         run: |
-          echo "Checking for hardcoded secrets..."
-          if grep -rE "(API_KEY|PASSWORD|SECRET|TOKEN) *= *['\"]" ./src; then
-            echo "❌ Hardcoded secret found! Please remove it."
+          echo "🔍 Scanning for hardcoded values..."
+          if grep -i -E "password|secret|apikey|token|dbhost" -r AILogAnalyzer/; then
+            echo "❌ Hardcoded sensitive value found. Please use environment variables."
             exit 1
           fi
-          echo "✅ No hardcoded secrets detected"
+          echo "✅ No hardcoded sensitive values found."
+
+      # ✅ Run lint
+      - name: Lint with flake8
+        run: |
+          echo "🔍 Running flake8 lint..."
+          flake8 AILogAnalyzer --max-line-length=100
+          echo "✅ Linting passed."
+
+      # ✅ Security scan
+      - name: Security check with Bandit
+        run: |
+          echo "🔍 Running Bandit security scan..."
+          bandit -r AILogAnalyzer || (echo "❌ Security issues found!" && exit 1)
