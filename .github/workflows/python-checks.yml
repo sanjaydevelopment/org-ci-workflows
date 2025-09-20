@@ -33,38 +33,51 @@ jobs:
         run: |
           if [ ! -f "requirements.txt" ]; then
             echo "REQ_RESULT=fail" >> $GITHUB_ENV
+            echo "::error::❌ Missing requirements.txt file"
             exit 1
           fi
+          echo "✅ Found requirements.txt"
 
       - name: Check project structure
         run: |
           if [ ! -d "src" ]; then
             echo "STRUCT_RESULT=fail" >> $GITHUB_ENV
+            echo "::error::❌ Missing src directory"
             exit 1
           fi
+          echo "✅ Found src directory"
 
       # ---------------- Optional Checks ----------------
       - name: Check for hardcoded sensitive values
         continue-on-error: true
         run: |
-          if grep -r "password" .; then
+          if grep -r -i -E "(password|api_key|secret|token)" . --exclude-dir=.git 2>/dev/null | grep -v "node_modules"; then
             echo "SECRET_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Potential sensitive values found in code"
+          else
+            echo "✅ No sensitive values detected"
           fi
 
       - name: Run lint (flake8)
         continue-on-error: true
         run: |
           pip install flake8
-          if ! flake8 .; then
+          if ! flake8 . --exclude=.git; then
             echo "LINT_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Lint issues found"
+          else
+            echo "✅ Lint passed"
           fi
 
       - name: Run security check (bandit)
         continue-on-error: true
         run: |
           pip install bandit
-          if ! bandit -r .; then
+          if ! bandit -r . --exclude=.git -f json -o bandit_output.json; then
             echo "SECURITY_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Security issues found"
+          else
+            echo "✅ Security check passed"
           fi
 
       # ---------------- Publish Summary ----------------
@@ -82,22 +95,50 @@ jobs:
           if [ "$LINT_RESULT" = "success" ]; then echo "| Lint | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Lint | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
           if [ "$SECURITY_RESULT" = "success" ]; then echo "| Security check | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Security check | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
 
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Next Steps" >> $GITHUB_STEP_SUMMARY
+          if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
+            echo "- ❌ Fix mandatory checks first" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ All checks passed! 🎉" >> $GITHUB_STEP_SUMMARY
+          fi
+
       # ---------------- Fail Job if Mandatory Checks Fail ----------------
-      - name: Fail job if checks failed
+      - name: Fail job if mandatory checks failed
         if: always()
         run: |
           if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
-            echo "❌ Mandatory checks failed"
+            echo "❌ Mandatory checks failed - blocking merge"
             exit 1
           fi
+          echo "✅ All mandatory checks passed"
 
       # ---------------- Create/Update Issue ----------------
-      - name: Create/Update Issue
-        if: failure()
+      - name: Create Issue for Failed Checks
+        if: always() && (env.REQ_RESULT == 'fail' || env.STRUCT_RESULT == 'fail' || env.SECRET_RESULT == 'fail' || env.LINT_RESULT == 'fail' || env.SECURITY_RESULT == 'fail')
         uses: dacbd/create-issue-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          title: "Python Checks Failed"
+          title: "🔍 Python Quality Checks - Issues Found"
           body: |
-            Some checks have failed in the workflow run.
-            Please review the **Actions summary** for details.
+            ## 🚨 Python Checks Failed
+            
+            Your recent code changes triggered some quality check failures:
+            
+            ### Failed Checks:
+            ${{ [env.REQ_RESULT, env.STRUCT_RESULT, env.SECRET_RESULT, env.LINT_RESULT, env.SECURITY_RESULT] | join(', ') }}
+            
+            ### Details:
+            - **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - **Commit**: `${{ github.sha }}`
+            - **Branch**: `${{ github.ref_name }}`
+            
+            ### 📋 Action Required:
+            1. Review the [Actions summary](#) for detailed logs
+            2. Fix the issues and push your changes
+            3. The workflow will re-run automatically
+            
+            **Note**: Mandatory checks (requirements.txt, project structure) must pass before merging.
+            
+            ---
+            *This issue was automatically created by Python Checks workflow*
