@@ -126,7 +126,7 @@ jobs:
             Your recent code changes triggered some quality check failures:
             
             ### Failed Checks:
-            ${{ [env.REQ_RESULT, env.STRUCT_RESULT, env.SECRET_RESULT, env.LINT_RESULT, env.SECURITY_RESULT] | join(', ') }}
+            ${{ env.REQ_RESULT }}, ${{ env.STRUCT_RESULT }}, ${{ env.SECRET_RESULT }}, ${{ env.LINT_RESULT }}, ${{ env.SECURITY_RESULT }}
             
             ### Details:
             - **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
