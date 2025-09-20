@@ -27,6 +27,8 @@ jobs:
         run: |
           if [ ! -f requirements.txt ]; then
             echo "❌ requirements.txt missing" >> failure-summary.txt
+          else
+            echo "✅ requirements.txt found" >> failure-summary.txt
           fi
 
       # ✅ Project structure (example: src + tests must exist)
@@ -35,6 +37,8 @@ jobs:
           for dir in src tests; do
             if [ ! -d "$dir" ]; then
               echo "❌ Missing directory: $dir" >> failure-summary.txt
+            else
+              echo "✅ Found directory: $dir" >> failure-summary.txt
             fi
           done
 
@@ -43,45 +47,69 @@ jobs:
         run: |
           if grep -R -n -E "password=|api[_-]?key=|secret=" .; then
             echo "❌ Hardcoded sensitive values found" >> failure-summary.txt
+          else
+            echo "✅ No hardcoded sensitive values detected" >> failure-summary.txt
           fi
 
-      # ✅ Lint (optional)
+      # ✅ Lint
       - name: Run lint
         run: |
           pip install flake8
           set +e
           flake8 . > lint-report.txt
           if [ $? -ne 0 ]; then
-            echo "❌ Lint errors found (see lint-report.txt)" >> failure-summary.txt
+            echo "❌ Lint errors found (see report below)" >> failure-summary.txt
+          else
+            echo "✅ No lint errors" >> failure-summary.txt
           fi
           set -e
 
-      # ✅ Security check (optional)
+      # ✅ Security check
       - name: Run security check
         run: |
           pip install bandit
           set +e
           bandit -r . -f txt -o security-report.txt
           if [ $? -ne 0 ]; then
-            echo "❌ Security issues found (see security-report.txt)" >> failure-summary.txt
+            echo "❌ Security issues found (see report below)" >> failure-summary.txt
+          else
+            echo "✅ No security issues" >> failure-summary.txt
           fi
           set -e
 
-      # ✅ Upload artifacts (lint + security + summary)
-      - name: Upload reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: reports
-          path: |
-            failure-summary.txt
-            lint-report.txt
-            security-report.txt
+      # ✅ Write results to GitHub UI summary
+      - name: Publish summary
+        run: |
+          echo "## 📝 CI Checks Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Overall Results" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat failure-summary.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f lint-report.txt ]; then
+            echo "### 🔎 Lint Report" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat lint-report.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f security-report.txt ]; then
+            echo "### 🔐 Security Report" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat security-report.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
       # ✅ Check if failed
       - name: Check results
         id: results
         run: |
-          if [ -s failure-summary.txt ]; then
+          if grep -q "❌" failure-summary.txt; then
             echo "status=fail" >> $GITHUB_OUTPUT
           else
             echo "status=pass" >> $GITHUB_OUTPUT
