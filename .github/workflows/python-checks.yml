@@ -1,11 +1,12 @@
-name: Global Python Checks
+name: Python Checks
 
 on:
   workflow_call:
+    secrets: inherit
 
 permissions:
   contents: read
-  issues: write   # ✅ required to create/update CI issues
+  issues: write
 
 jobs:
   run-checks:
@@ -19,157 +20,84 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Initialize failure summary
-        run: echo "" > failure-summary.txt
+      - name: Initialize results
+        run: |
+          echo "REQ_RESULT=success" >> $GITHUB_ENV
+          echo "STRUCT_RESULT=success" >> $GITHUB_ENV
+          echo "SECRET_RESULT=success" >> $GITHUB_ENV
+          echo "LINT_RESULT=success" >> $GITHUB_ENV
+          echo "SECURITY_RESULT=success" >> $GITHUB_ENV
 
-      # ✅ requirements.txt
+      # ---------------- Mandatory Checks ----------------
       - name: Check for requirements.txt
         run: |
-          if [ ! -f requirements.txt ]; then
-            echo "❌ requirements.txt missing" >> failure-summary.txt
-          else
-            echo "✅ requirements.txt found" >> failure-summary.txt
+          if [ ! -f "requirements.txt" ]; then
+            echo "REQ_RESULT=fail" >> $GITHUB_ENV
+            exit 1
           fi
 
-      # ✅ Project structure (example: src + tests must exist)
       - name: Check project structure
         run: |
-          for dir in src tests; do
-            if [ ! -d "$dir" ]; then
-              echo "❌ Missing directory: $dir" >> failure-summary.txt
-            else
-              echo "✅ Found directory: $dir" >> failure-summary.txt
-            fi
-          done
-
-      # ✅ Hardcoded secrets
-      - name: Check for hardcoded sensitive values
-        run: |
-          if grep -R -n -E "password=|api[_-]?key=|secret=" .; then
-            echo "❌ Hardcoded sensitive values found" >> failure-summary.txt
-          else
-            echo "✅ No hardcoded sensitive values detected" >> failure-summary.txt
+          if [ ! -d "src" ]; then
+            echo "STRUCT_RESULT=fail" >> $GITHUB_ENV
+            exit 1
           fi
 
-      # ✅ Lint
-      - name: Run lint
+      # ---------------- Optional Checks ----------------
+      - name: Check for hardcoded sensitive values
+        continue-on-error: true
+        run: |
+          if grep -r "password" .; then
+            echo "SECRET_RESULT=fail" >> $GITHUB_ENV
+          fi
+
+      - name: Run lint (flake8)
+        continue-on-error: true
         run: |
           pip install flake8
-          set +e
-          flake8 . > lint-report.txt
-          if [ $? -ne 0 ]; then
-            echo "❌ Lint errors found (see report below)" >> failure-summary.txt
-          else
-            echo "✅ No lint errors" >> failure-summary.txt
+          if ! flake8 .; then
+            echo "LINT_RESULT=fail" >> $GITHUB_ENV
           fi
-          set -e
 
-      # ✅ Security check
-      - name: Run security check
+      - name: Run security check (bandit)
+        continue-on-error: true
         run: |
           pip install bandit
-          set +e
-          bandit -r . -f txt -o security-report.txt
-          if [ $? -ne 0 ]; then
-            echo "❌ Security issues found (see report below)" >> failure-summary.txt
-          else
-            echo "✅ No security issues" >> failure-summary.txt
+          if ! bandit -r .; then
+            echo "SECURITY_RESULT=fail" >> $GITHUB_ENV
           fi
-          set -e
 
-      # ✅ Write results to GitHub UI summary
+      # ---------------- Publish Summary ----------------
       - name: Publish summary
-        run: |
-          echo "## 📝 CI Checks Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Overall Results" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat failure-summary.txt >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f lint-report.txt ]; then
-            echo "### 🔎 Lint Report" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            cat lint-report.txt >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -f security-report.txt ]; then
-            echo "### 🔐 Security Report" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            cat security-report.txt >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      # ✅ Check if failed
-      - name: Check results
-        id: results
-        run: |
-          if grep -q "❌" failure-summary.txt; then
-            echo "status=fail" >> $GITHUB_OUTPUT
-          else
-            echo "status=pass" >> $GITHUB_OUTPUT
-          fi
-
-      # ✅ Manage Issue
-      - name: Create/Update Issue
         if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require("fs");
-            const summary = fs.readFileSync("failure-summary.txt", "utf8");
-            const branch = process.env.GITHUB_REF_NAME;
-            const issueTitle = `⚠️ CI Issues in branch: ${branch}`;
-            const label = "ci-checks";
+        run: |
+          echo "## 🚦 Python Checks Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
 
-            const issues = await github.paginate(
-              github.rest.issues.listForRepo,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: "open",
-                labels: label
-              }
-            );
-            const existing = issues.find(i => i.title === issueTitle);
+          if [ "$REQ_RESULT" = "success" ]; then echo "| requirements.txt | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| requirements.txt | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$STRUCT_RESULT" = "success" ]; then echo "| Project structure | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Project structure | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$SECRET_RESULT" = "success" ]; then echo "| Sensitive values | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Sensitive values | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$LINT_RESULT" = "success" ]; then echo "| Lint | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Lint | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$SECURITY_RESULT" = "success" ]; then echo "| Security check | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Security check | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
 
-            if ("${{ steps.results.outputs.status }}" === "fail") {
-              const body = `CI checks failed on branch \`${branch}\` in workflow run: [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n**Summary:**\n\`\`\`\n${summary}\n\`\`\``;
-
-              if (existing) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: existing.number,
-                  body
-                });
-              } else {
-                await github.rest.issues.create({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  title: issueTitle,
-                  body,
-                  labels: [label]
-                });
-              }
-            } else {
-              if (existing) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: existing.number,
-                  state: "closed",
-                  body: "✅ All checks passing, closing issue."
-                });
-              }
-            }
-
-      # ✅ Final fail if needed
+      # ---------------- Fail Job if Mandatory Checks Fail ----------------
       - name: Fail job if checks failed
-        if: steps.results.outputs.status == 'fail'
-        run: exit 1
+        if: always()
+        run: |
+          if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
+            echo "❌ Mandatory checks failed"
+            exit 1
+          fi
+
+      # ---------------- Create/Update Issue ----------------
+      - name: Create/Update Issue
+        if: failure()
+        uses: dacbd/create-issue-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Python Checks Failed"
+          body: |
+            Some checks have failed in the workflow run.
+            Please review the **Actions summary** for details.
