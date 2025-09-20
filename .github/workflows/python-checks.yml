@@ -2,7 +2,6 @@ name: Python Checks
 
 on:
   workflow_call:
-    secrets: inherit
 
 permissions:
   contents: read
@@ -144,16 +143,16 @@ jobs:
           
           # ---------------- REPO ISSUE (for developers) ----------------
           REPO_ISSUE_BODY="## 🚨 Python Checks Failed\n\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY**Repository**: ${{ github.repository }}\n\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY**Repository**: $GITHUB_REPOSITORY\n\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY### Failed Checks:\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY- **${{ steps.check-failures.outputs.failed_checks }}**\n\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY### Details:\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Field | Status |\n|-------|--------|\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| requirements.txt | ${{ env.REQ_RESULT }} |\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Project structure | ${{ env.STRUCT_RESULT }} |\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Sensitive values | ${{ env.SECRET_RESULT }} |\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Lint | ${{ env.LINT_RESULT }} |\n"
-          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Security | ${{ env.SECURITY_RESULT }} |\n\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| requirements.txt | $REQ_RESULT |\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Project structure | $STRUCT_RESULT |\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Sensitive values | $SECRET_RESULT |\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Lint | $LINT_RESULT |\n"
+          REPO_ISSUE_BODY="$REPO_ISSUE_BODY| Security | $SECURITY_RESULT |\n\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY### Action Required:\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY1. Review the [workflow logs]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)\n"
           REPO_ISSUE_BODY="$REPO_ISSUE_BODY2. Fix the issues above\n"
@@ -165,10 +164,9 @@ jobs:
           # Create issue in the repository
           echo "📝 Creating developer issue in repo..."
           REPO_ISSUE=$(gh issue create \
-            --title "🔍 Python Quality Checks - Issues Found [${{ github.ref_name }}]" \
+            --title "🔍 Python Quality Checks - Issues Found [$GITHUB_REF_NAME]" \
             --body "$REPO_ISSUE_BODY" \
-            --label "python-check-fail,automation,quality" \
-            --repo "${{ github.repository }}")
+            --label "python-check-fail,automation,quality")
           
           REPO_ISSUE_NUMBER=$(echo $REPO_ISSUE | cut -d' ' -f1)
           echo "✅ Created repo issue #$REPO_ISSUE_NUMBER"
@@ -177,24 +175,24 @@ jobs:
           echo "📊 Creating leadership issue in org project..."
           
           ORG_ISSUE_BODY="## 🚨 Python Quality Issue Detected\n\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Repository**: ${{ github.repository }}\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Branch**: ${{ github.ref_name }}\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Commit**: `${{ github.sha }}`\n\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Repository**: $GITHUB_REPOSITORY\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Branch**: $GITHUB_REF_NAME\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY**Commit**: $GITHUB_SHA\n\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY### Failed Checks:\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **${{ steps.check-failures.outputs.failed_checks }}**\n\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY### Status Summary:\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Check | Result |\n|--------|--------|\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| requirements.txt | ${{ env.REQ_RESULT }} |\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Project structure | ${{ env.STRUCT_RESULT }} |\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Sensitive values | ${{ env.SECRET_RESULT }} |\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Lint | ${{ env.LINT_RESULT }} |\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Security | ${{ env.SECURITY_RESULT }} |\n\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| requirements.txt | $REQ_RESULT |\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Project structure | $STRUCT_RESULT |\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Sensitive values | $SECRET_RESULT |\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Lint | $LINT_RESULT |\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY| Security | $SECURITY_RESULT |\n\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY### Links:\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **Repo Issue**: #${REPO_ISSUE_NUMBER} in ${{ github.repository }}\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **Repo Issue**: #$REPO_ISSUE_NUMBER in $GITHUB_REPOSITORY\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **Workflow Run**: [$GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)\n"
-          ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **Commit**: [`${{ github.sha }}`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/${{ github.sha }})\n\n"
+          ORG_ISSUE_BODY="$ORG_ISSUE_BODY- **Commit**: [$GITHUB_SHA]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)\n\n"
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY### Priority:\n"
-          if [ "${{ env.REQ_RESULT }}" = "fail" ] || [ "${{ env.STRUCT_RESULT }}" = "fail" ]; then
+          if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
             ORG_ISSUE_BODY="$ORG_ISSUE_BODY**🚨 HIGH** - Mandatory checks failed (blocks merge)\n"
           else
             ORG_ISSUE_BODY="$ORG_ISSUE_BODY**⚠️ MEDIUM** - Quality issues detected\n"
@@ -202,14 +200,15 @@ jobs:
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY\n---
           *Auto-generated by Python Checks workflow*"
           
-          # Create issue in ORG-LEVEL PROJECT
-          # REPLACE "YOUR-ORG-NAME" and "Python-Repo-Health-Dashboard" with your actual values
+          # ✅ THIS CREATES THE ISSUE IN YOUR ORG PROJECT
+          # UPDATE "sanjaydevelopment" and "Python-Quality-Issues" with your actual values
           gh issue create \
-            --title "🚨 [${{ github.repository }}] Python Checks Failed" \
+            --title "🚨 [$GITHUB_REPOSITORY] Python Checks Failed" \
             --body "$ORG_ISSUE_BODY" \
-            --label "quality,python-check-fail,${{ github.repository }}" \
-            --project "Python-Repo-Health-Dashboard" \
-            --repo "${{ github.repository_owner }}/Python-Repo-Health-Dashboard"  # Optional: specify repo if issues are in a central repo
+            --label "quality,python-check-fail" \
+            --repo "sanjaydevelopment/Python-Quality-Issues" \
+            --milestone "" \
+            --assignee ""
           
           echo "✅ Created org project issue!"
         env:
