@@ -2,7 +2,6 @@ name: Python Checks
 
 on:
   workflow_call:
-    secrets: inherit
 
 permissions:
   contents: read
@@ -113,9 +112,28 @@ jobs:
           fi
           echo "✅ All mandatory checks passed"
 
-      # ---------------- Create/Update Issue ----------------
+      # ---------------- Create Issue for Failed Checks ----------------
+      - name: Check for failed checks
+        if: always()
+        id: check-failures
+        run: |
+          FAILED_CHECKS=""
+          if [ "$REQ_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS requirements.txt,"; fi
+          if [ "$STRUCT_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS project structure,"; fi
+          if [ "$SECRET_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS sensitive values,"; fi
+          if [ "$LINT_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS lint,"; fi
+          if [ "$SECURITY_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS security,"; fi
+          
+          if [ -n "$FAILED_CHECKS" ]; then
+            FAILED_CHECKS=${FAILED_CHECKS%,}
+            echo "failed_checks=$FAILED_CHECKS" >> $GITHUB_OUTPUT
+            echo "has_failures=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_failures=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Issue for Failed Checks
-        if: always() && (env.REQ_RESULT == 'fail' || env.STRUCT_RESULT == 'fail' || env.SECRET_RESULT == 'fail' || env.LINT_RESULT == 'fail' || env.SECURITY_RESULT == 'fail')
+        if: always() && steps.check-failures.outputs.has_failures == 'true'
         uses: dacbd/create-issue-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -126,7 +144,7 @@ jobs:
             Your recent code changes triggered some quality check failures:
             
             ### Failed Checks:
-            ${{ env.REQ_RESULT }}, ${{ env.STRUCT_RESULT }}, ${{ env.SECRET_RESULT }}, ${{ env.LINT_RESULT }}, ${{ env.SECURITY_RESULT }}
+            ${{ steps.check-failures.outputs.failed_checks }}
             
             ### Details:
             - **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
