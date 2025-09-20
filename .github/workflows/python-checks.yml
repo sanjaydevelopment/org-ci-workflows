@@ -141,6 +141,9 @@ jobs:
         run: |
           echo "📝 Creating developer issue in $GITHUB_REPOSITORY..."
           
+          # Get failed checks from step output (stored as env var)
+          FAILED_CHECKS="${{ steps.check-failures.outputs.failed_checks }}"
+          
           # Clean, formatted developer issue body
           REPO_ISSUE_BODY="### 🚨 Python Quality Checks Failed
 
@@ -149,7 +152,7 @@ jobs:
 **Commit**: [$GITHUB_SHA]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
 
 #### ❌ Failed Checks
-- **${{ steps.check-failures.outputs.failed_checks }}**
+- **$FAILED_CHECKS**
 
 #### 📊 Check Results
 | Check | Status |
@@ -174,7 +177,7 @@ jobs:
 
           # Create developer issue
           REPO_ISSUE=$(gh issue create \
-            --title "🔍 [${{ steps.check-failures.outputs.failed_checks }}] Python Quality Issues" \
+            --title "🔍 [$FAILED_CHECKS] Python Quality Issues" \
             --body "$REPO_ISSUE_BODY" \
             --label "python-check-fail,bug,quality" \
             2>&1)
@@ -197,6 +200,10 @@ jobs:
         run: |
           echo "📊 Creating leadership issue in central org repo..."
           
+          # Get failed checks from step output
+          FAILED_CHECKS="${{ steps.check-failures.outputs.failed_checks }}"
+          REPO_ISSUE_NUMBER="${{ steps.create-dev-issue.outputs.repo_issue_number }}"
+          
           # Central repo for leadership issues - UPDATE THIS
           CENTRAL_REPO="sanjaydevelopment/Python-Quality-Issues"
           
@@ -209,7 +216,7 @@ jobs:
 **Workflow**: [$GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 
 #### ❌ Failed Checks
-${{ steps.check-failures.outputs.failed_checks }}
+$FAILED_CHECKS
 
 #### 📊 Status Summary
 | Check | Result |
@@ -222,9 +229,10 @@ ${{ steps.check-failures.outputs.failed_checks }}
 
 #### 🎯 Priority & Impact
 "
+
           if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
             ORG_ISSUE_BODY="$ORG_ISSUE_BODY**🚨 HIGH PRIORITY** - Blocks deployment/merge
-- **Impact**: Cannot deploy until fixed
+- **Impact**: Cannot deploy until fixed  
 - **Timeline**: Immediate (same day)"
           else
             ORG_ISSUE_BODY="$ORG_ISSUE_BODY**⚠️ MEDIUM PRIORITY** - Quality concerns
@@ -233,18 +241,18 @@ ${{ steps.check-failures.outputs.failed_checks }}
           fi
 
           # Add developer issue link if created
-          if [ "${{ steps.create-dev-issue.outputs.repo_issue_number }}" != "0" ]; then
+          if [ "$REPO_ISSUE_NUMBER" != "0" ]; then
             ORG_ISSUE_BODY="$ORG_ISSUE_BODY
 
 #### 🔗 Developer Action
-- **Repo Issue**: #${{ steps.create-dev-issue.outputs.repo_issue_number }} in $GITHUB_REPOSITORY"
+- **Repo Issue**: #$REPO_ISSUE_NUMBER in $GITHUB_REPOSITORY"
           fi
 
           ORG_ISSUE_BODY="$ORG_ISSUE_BODY
 
 #### 📈 Business Impact
 - **Risk**: Potential security vulnerabilities or deployment failures
-- **Cost**: Developer time to fix + potential production issues
+- **Cost**: Developer time to fix + potential production issues  
 - **ROI**: Early detection saves 5x the fix cost
 
 ---
@@ -253,7 +261,7 @@ ${{ steps.check-failures.outputs.failed_checks }}
           # Create leadership issue in central repo
           ORG_ISSUE=$(gh issue create \
             --repo "$CENTRAL_REPO" \
-            --title "🚨 [$GITHUB_REPOSITORY] - ${{ steps.check-failures.outputs.failed_checks }}" \
+            --title "🚨 [$GITHUB_REPOSITORY] - $FAILED_CHECKS" \
             --body "$ORG_ISSUE_BODY" \
             --label "quality-issue,python,${GITHUB_REPOSITORY##*/}" \
             2>&1)
@@ -266,10 +274,10 @@ ${{ steps.check-failures.outputs.failed_checks }}
             echo "Falling back to same repo..."
             # Fallback: create in same repo if central repo doesn't exist
             gh issue create \
-              --title "🚨 [$GITHUB_REPOSITORY] - ${{ steps.check-failures.outputs.failed_checks }} (FALLBACK)" \
+              --title "🚨 [$GITHUB_REPOSITORY] - $FAILED_CHECKS (FALLBACK)" \
               --body "$ORG_ISSUE_BODY" \
               --label "quality-issue,python,leadership" \
-              2>&1
+              2>&1 || echo "Fallback also failed"
           fi
 
       # ---------------- Success Notification ----------------
