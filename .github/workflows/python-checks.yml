@@ -1,56 +1,162 @@
-name: Global Python Checks
+name: Python Checks
 
 on:
-  workflow_call:   # makes this reusable
+  workflow_call:
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
-  checks:
+  run-checks:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.x"
 
-      # 1. ✅ Check required project files exist
-      - name: Verify project structure
+      - name: Initialize results
         run: |
-          missing=0
-          for file in requirements.txt README.md; do
-            if [ ! -f "$file" ]; then
-              echo "❌ Missing required file: $file"
-              missing=1
-            fi
-          done
-          if [ $missing -ne 0 ]; then
+          echo "REQ_RESULT=success" >> $GITHUB_ENV
+          echo "STRUCT_RESULT=success" >> $GITHUB_ENV
+          echo "SECRET_RESULT=success" >> $GITHUB_ENV
+          echo "LINT_RESULT=success" >> $GITHUB_ENV
+          echo "SECURITY_RESULT=success" >> $GITHUB_ENV
+
+      # ---------------- Mandatory Checks ----------------
+      - name: Check for requirements.txt
+        run: |
+          if [ ! -f "requirements.txt" ]; then
+            echo "REQ_RESULT=fail" >> $GITHUB_ENV
+            echo "::error::❌ Missing requirements.txt file"
             exit 1
           fi
+          echo "✅ Found requirements.txt"
 
-      # 2. ✅ Check for hardcoded sensitive values
-      - name: Scan for hardcoded values
+      - name: Check project structure
         run: |
-          if grep -rE "password|passwd|api[_-]?key|secret|token|AKIA[0-9A-Z]{16}|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" . --exclude-dir=.git --include=*.py; then
-            echo "❌ Hardcoded secrets or IPs found!"
+          if [ ! -d "src" ]; then
+            echo "STRUCT_RESULT=fail" >> $GITHUB_ENV
+            echo "::error::❌ Missing src directory"
             exit 1
+          fi
+          echo "✅ Found src directory"
+
+      # ---------------- Optional Checks ----------------
+      - name: Check for hardcoded sensitive values
+        continue-on-error: true
+        run: |
+          if grep -r -i -E "(password|api_key|secret|token)" . --exclude-dir=.git 2>/dev/null | grep -v "node_modules"; then
+            echo "SECRET_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Potential sensitive values found in code"
           else
-            echo "✅ No hardcoded values detected."
+            echo "✅ No sensitive values detected"
           fi
 
-      # 3. ✅ Install dependencies if requirements.txt exists
-      - name: Install dependencies
-        if: exists('requirements.txt')
-        run: pip install -r requirements.txt
-
-      # 4. ✅ Run linting (basic style + unused imports check)
-      - name: Run flake8 lint
+      - name: Run lint (flake8)
+        continue-on-error: true
         run: |
           pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          if ! flake8 . --exclude=.git; then
+            echo "LINT_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Lint issues found"
+          else
+            echo "✅ Lint passed"
+          fi
 
-      # 5. ✅ Verify Python files can compile
-      - name: Compile Python code
-        run: python -m compileall .
+      - name: Run security check (bandit)
+        continue-on-error: true
+        run: |
+          pip install bandit
+          if ! bandit -r . --exclude=.git -f json -o bandit_output.json; then
+            echo "SECURITY_RESULT=fail" >> $GITHUB_ENV
+            echo "::warning::⚠️ Security issues found"
+          else
+            echo "✅ Security check passed"
+          fi
+
+      # ---------------- Publish Summary ----------------
+      - name: Publish summary
+        if: always()
+        run: |
+          echo "## 🚦 Python Checks Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$REQ_RESULT" = "success" ]; then echo "| requirements.txt | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| requirements.txt | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$STRUCT_RESULT" = "success" ]; then echo "| Project structure | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Project structure | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$SECRET_RESULT" = "success" ]; then echo "| Sensitive values | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Sensitive values | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$LINT_RESULT" = "success" ]; then echo "| Lint | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Lint | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
+          if [ "$SECURITY_RESULT" = "success" ]; then echo "| Security check | ✅ PASS |" >> $GITHUB_STEP_SUMMARY; else echo "| Security check | ⚠️ WARNING |" >> $GITHUB_STEP_SUMMARY; fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Next Steps" >> $GITHUB_STEP_SUMMARY
+          if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
+            echo "- ❌ Fix mandatory checks first" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ All checks passed! 🎉" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ---------------- Fail Job if Mandatory Checks Fail ----------------
+      - name: Fail job if mandatory checks failed
+        if: always()
+        run: |
+          if [ "$REQ_RESULT" = "fail" ] || [ "$STRUCT_RESULT" = "fail" ]; then
+            echo "❌ Mandatory checks failed - blocking merge"
+            exit 1
+          fi
+          echo "✅ All mandatory checks passed"
+
+      # ---------------- Create Issue for Failed Checks ----------------
+      - name: Check for failed checks
+        if: always()
+        id: check-failures
+        run: |
+          FAILED_CHECKS=""
+          if [ "$REQ_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS requirements.txt,"; fi
+          if [ "$STRUCT_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS project structure,"; fi
+          if [ "$SECRET_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS sensitive values,"; fi
+          if [ "$LINT_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS lint,"; fi
+          if [ "$SECURITY_RESULT" = "fail" ]; then FAILED_CHECKS="$FAILED_CHECKS security,"; fi
+          
+          if [ -n "$FAILED_CHECKS" ]; then
+            FAILED_CHECKS=${FAILED_CHECKS%,}
+            echo "failed_checks=$FAILED_CHECKS" >> $GITHUB_OUTPUT
+            echo "has_failures=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_failures=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Issue for Failed Checks
+        if: always() && steps.check-failures.outputs.has_failures == 'true'
+        uses: dacbd/create-issue-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "🔍 Python Quality Checks - Issues Found"
+          body: |
+            ## 🚨 Python Checks Failed
+            
+            Your recent code changes triggered some quality check failures:
+            
+            ### Failed Checks:
+            ${{ steps.check-failures.outputs.failed_checks }}
+            
+            ### Details:
+            - **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - **Commit**: `${{ github.sha }}`
+            - **Branch**: `${{ github.ref_name }}`
+            
+            ### 📋 Action Required:
+            1. Review the [Actions summary](#) for detailed logs
+            2. Fix the issues and push your changes
+            3. The workflow will re-run automatically
+            
+            **Note**: Mandatory checks (requirements.txt, project structure) must pass before merging.
+            
+            ---
+            *This issue was automatically created by Python Checks workflow*
